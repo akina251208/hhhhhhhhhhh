@@ -1,0 +1,51 @@
+name: Cleanup Failed and Cancelled Runs
+
+on:
+  workflow_dispatch: # 允许在 Actions 页面手动点击运行
+  schedule:
+    - cron: '0 0 * * *' # 可选：每天 UTC 时间 0 点自动执行一次，不需要可删除或注释掉此段
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # 必须赋予写入权限，否则 GITHUB_TOKEN 无法删除运行记录
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Delete failed and cancelled runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "开始清理失败 (failure) 的运行记录..."
+          # 获取最近 500 条失败的运行记录 ID
+          FAILED_RUNS=$(gh run list --status failure --limit 500 --json databaseId --jq '.[].databaseId')
+          
+          if [ -z "$FAILED_RUNS" ]; then
+            echo "没有找到失败的运行记录。"
+          else
+            for id in $FAILED_RUNS; do
+              echo "正在删除失败的记录 ID: $id"
+              gh api -X DELETE /repos/${{ github.repository }}/actions/runs/$id --silent || echo "删除 $id 失败，可能权限不足或已被删除"
+            done
+          fi
+
+          echo "----------------------------------------"
+
+          echo "开始清理已取消 (cancelled) 的运行记录..."
+          # 获取最近 500 条取消的运行记录 ID
+          CANCELLED_RUNS=$(gh run list --status cancelled --limit 500 --json databaseId --jq '.[].databaseId')
+          
+          if [ -z "$CANCELLED_RUNS" ]; then
+            echo "没有找到已取消的运行记录。"
+          else
+            for id in $CANCELLED_RUNS; do
+              echo "正在删除取消的记录 ID: $id"
+              gh api -X DELETE /repos/${{ github.repository }}/actions/runs/$id --silent || echo "删除 $id 失败，可能权限不足或已被删除"
+            done
+          fi
+          
+          echo "清理完成！"
